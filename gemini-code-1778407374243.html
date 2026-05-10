@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fitai App</title>
+  
+  <style>
+    body { background-color: #000; color: #fff; margin: 0; padding: 0; overscroll-behavior-y: none; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // ─────────────────────────────────────────
+    // CUSTOM HOOK: LOCAL STORAGE
+    // ─────────────────────────────────────────
+    function useLocalStorage(key, initialValue) {
+      const [storedValue, setStoredValue] = useState(() => {
+        try {
+          const item = window.localStorage.getItem(key);
+          return item ? JSON.parse(item) : initialValue;
+        } catch (error) {
+          console.error(error);
+          return initialValue;
+        }
+      });
+
+      const setValue = value => {
+        try {
+          const valueToStore = value instanceof Function ? value(storedValue) : value;
+          setStoredValue(valueToStore);
+          window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        } catch (error) {
+          console.error(error);
+        }
+      };
+      return [storedValue, setValue];
+    }
+
+    // ─────────────────────────────────────────
+    // ICONS & GRAPHICS
+    // ─────────────────────────────────────────
+    const Check = ({ className, strokeWidth = 2 }) => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    );
+
+    const Lock = ({ className }) => (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+    );
+
+    const MuscleMan = ({ target }) => {
+      const isPush = target === 'push';
+      const isPull = target === 'pull';
+      const isCore = target === 'core';
+      const isLegs = target === 'legs';
+      
+      const pushPullColor = isPush || isPull ? '#ef4444' : '#3f3f46';
+      const coreColor = isCore ? '#ef4444' : '#3f3f46';
+      const legsColor = isLegs ? '#ef4444' : '#3f3f46';
+
+      return (
+        <svg viewBox="0 0 100 140" className="w-28 h-28 mx-auto drop-shadow-2xl mb-4">
+          <circle cx="50" cy="15" r="10" fill="#3f3f46" />
+          <path d="M 45 25 L 55 25 L 60 35 L 40 35 Z" fill={pushPullColor} />
+          <path d="M 30 35 Q 50 25 70 35 L 85 75 L 75 80 L 65 45 L 35 45 L 25 80 L 15 75 Z" fill={pushPullColor} />
+          <rect x="38" y="55" width="24" height="30" rx="4" fill={coreColor} />
+          <path d="M 38 88 L 48 88 L 46 135 L 38 135 Z" fill={legsColor} />
+          <path d="M 52 88 L 62 88 L 62 135 L 54 135 Z" fill={legsColor} />
+        </svg>
+      );
+    };
+
+    // ─────────────────────────────────────────
+    // DATA
+    // ─────────────────────────────────────────
+    const DAYS_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+    
+    const QUESTIONS = [
+      { id:'name',     type:'text',   q:'מה השם הפרטי שלך?',           placeholder:'הכנס שם...' },
+      { id:'age',      type:'number', q:'בן כמה אתה?',                  placeholder:'גיל', min:10, max:99 },
+      { id:'height',   type:'number', q:'מה הגובה שלך? (ס"מ)',          placeholder:'178', min:100, max:230 },
+      { id:'weight',   type:'number', q:'מה המשקל שלך? (ק"ג)',          placeholder:'75', min:30, max:250 },
+      { id:'gender',   type:'choice', q:'מה המגדר שלך?',                 options:['זכר','נקבה','אחר'] },
+      { id:'goal',     type:'choice', q:'מה המטרה העיקרית שלך?',        options:['ירידה באחוזי שומן (חיטוב)','בניית מסת שריר וכוח'] },
+      { id:'days',     type:'days',   q:'באילו ימים תרצה להתאמן?',      options:['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'] },
+      { id:'location', type:'choice', q:'איפה תתאמן בעיקר?',            options:['חדר כושר','פארק קליסטניקס','בבית','סטודיו'] },
+      { id:'equip',    type:'multi',  q:'איזה ציוד זמין לך?',           options:['מוט מתח','מקבילים','טבעות','גומיות','פרלטס','ללא ציוד'] },
+      { id:'pushups',  type:'choice', q:'כמה שכיבות סמיכה ברצף?',      options:['0-5','6-15','16-30','30+'] },
+      { id:'pullups',  type:'choice', q:'כמה עליות מתח ברצף?',          options:['0','1-4','5-10','10+'] },
+      { id:'injuries', type:'multi',  q:'מגבלות או פציעות?',            options:['ללא פציעות','כאבי גב','כתפיים','ברכיים','שורש כף יד'] },
+      { id:'sleep',    type:'choice', q:'כמה שעות שינה בממוצע?',        options:['פחות מ-5','5-6 שעות','7-8 שעות','9+'] },
+      { id:'allergies',type:'multi',  q:'אלרגיות למזון?',               options:['ללא','בוטנים','אגוזים','גלוטן','לקטוז','דגים','סויה'] },
+      { id:'dislikes', type:'text',   q:'יש מאכלים שאתה לא אוהב? (אופציונלי)', placeholder:'למשל: טונה, פטריות, עגבניות... (הפרד בפסיקים)' }
+    ];
+    
+    const generateTiers = () => {
+      const tiers = [];
+      const baseExercises = [
+        { name: 'שכיבות סמיכה', target: 'push' },
+        { name: 'כפיפות בטן', target: 'core' },
+        { name: 'סקוואט', target: 'legs' },
+        { name: 'מתח', target: 'pull' },
+        { name: 'מקבילים', target: 'push' },
+        { name: 'פלאנק', target: 'core' },
+        { name: 'לאנג\'ים', target: 'legs' },
+        { name: 'גשר אגן', target: 'legs' },
+        { name: 'הרמות רגליים', target: 'core' }
+      ];
+      
+      const tests = [
+        "20 שכיבות סמיכה, 50 כפיפות בטן, 2 דקות פלאנק",
+        "30 שכיבות סמיכה, 10 מתח, 3 דקות פלאנק",
+        "40 שכיבות סמיכה יהלום, 15 מתח רחב, 50 סקוואט קפיצה",
+        "50 מקבילים, 20 מתח, L-sit ל-30 שניות",
+        "10 עליות כוח (Muscle-up), 50 שכיבות סמיכה בעמידת ידיים (קיר)",
+        "החזקת Front Lever ל-10 שניות, 20 עליות כוח",
+        "שכיבות סמיכה ביד אחת (10 לכל צד), מתח יד אחת (2 לכל צד)",
+        "פלאנץ' פישוק ל-10 שניות, 20 מתח יד אחת",
+        "פלאנץ' מלא ל-10 שניות, עמידת ידיים חופשית ל-60 שניות",
+        "מאסטר קליסטניקס: השלמת כל תרגילי הליבה ברצף ללא הפסקה"
+      ];
+
+      let globalId = 1;
+
+      for (let i = 0; i < 10; i++) {
+        const skills = [];
+        for (let j = 0; j < 9; j++) {
+          const base = baseExercises[j];
+          let name = base.name;
+          
+          let techDesc = "";
+          if (base.target === 'push') techDesc = "דגשים לביצוע: גוף ישר ואסוף, הימנע מקריסה של הגב התחתון. שלוט בתנועה בירידה, ודחוף חזק בעלייה. מרפקים צריכים להיות קרובים יחסית לגוף ולא ב-90 מעלות.";
+          if (base.target === 'pull') techDesc = "דגשים לביצוע: משוך מתוך השכמות ולא רק מהידיים. שמור על חזה פתוח, כווץ את הגב ושללוט בשלב הירידה (אקסצנטרי) כדי למנוע פציעות.";
+          if (base.target === 'core') techDesc = "דגשים לביצוע: כווץ את שרירי הבטן לאורך כל התנועה. נשום בצורה סדירה ואל תעצור אוויר. הימנע מהקשתת יתר של הגב התחתון – הוא צריך להיות יציב.";
+          if (base.target === 'legs') techDesc = "דגשים לביצוע: דחוף מהעקבים. שמור על גב ישר וראש מורם. הברכיים צריכות לעקוב אחר כיוון כפות הרגליים ולא לקרוס פנימה.";
+
+          let desc = `התרגיל עובד בצורה אינטנסיבית על שרירי ה-${base.target === 'push' ? 'דחיפה (חזה, כתפיים, תלת ראשי)' : base.target === 'pull' ? 'משיכה (גב, דו ראשי)' : base.target === 'core' ? 'ליבה (בטן ומייצבים)' : 'רגליים (ארבע ראשי, ישבן, תאומים)'}.\n\n${techDesc}`;
+
+          if (i === 0) {
+            if (base.name === 'שכיבות סמיכה') name = 'שכיבות סמיכה (קיר)';
+            else if (base.name === 'סקוואט') name = 'חצי סקוואט';
+            else if (base.name === 'מתח') name = 'מתח אופקי (חתירה)';
+            else if (base.name === 'מקבילים') name = 'מקבילים על ספסל';
+            else name = `${base.name} (בסיס)`;
+          }
+          else if (i === 1) name = `${name} קלאסי`;
+          else if (i === 2) name = `${name} מתקדם`;
+          else if (i === 3) name = `${name} מתפרץ`;
+          else if (i === 4 && j === 3) name = `מאסל אפ שלילי`;
+          else if (i === 5 && j === 3) name = `מאסל אפ מלא`;
+          else if (i === 6 && j === 0) name = `שכיבות סמיכה יד אחת`;
+          else if (i === 7 && j === 5) name = `פלאנץ' פישוק`;
+          else if (i === 8 && j === 5) name = `פלאנץ' מלא`;
+          else name = `${name} (טיר ${i+1})`;
+
+          skills.push({
+            id: `sk_${globalId++}`,
+            name: name,
+            desc: desc,
+            target: base.target
+          });
+        }
+        
+        tiers.push({
+          level: i + 1,
+          name: i === 9 ? 'מאסטר Fitai' : `טיר ${i + 1}`,
+          testDesc: tests[i],
+          skills: skills
+        });
+      }
+      return tiers;
+    };
+
+    const TIERS = generateTiers();
+    
+    const BASE_WORKOUTS = {
+      fbw:   [{target:'legs',name:'סקוואט',reps:'15'},{target:'push',name:'שכיבות סמיכה',reps:'12'},{target:'core',name:'פלאנק סטטי',reps:'45 שנ\''},{target:'pull',name:'היתלות',reps:'30 שנ\''}],
+      upper: [{target:'pull',name:'מתח',reps:'8'},{target:'push',name:'שכיבות סמיכה',reps:'15'},{target:'push',name:'מקבילים',reps:'10'},{target:'core',name:'שכיבות פייק',reps:'30 שנ\''}],
+      lower: [{target:'legs',name:'סקוואט קפיצה',reps:'15'},{target:'legs',name:'לאנג׳ים',reps:'12/רגל'},{target:'core',name:'גשר אגן',reps:'15'},{target:'legs',name:'הרמות עקבים',reps:'20'}],
+    };
+
+    const MEAL_PLANS = {
+      training:{
+        morning:[
+          {name:'בוקר כוח ופחמימה',tags:['lactose'],ings:'2 פרוסות לחם חיטה מלאה, חביתה מ-2 ביצים, כף גבינה לבנה 5%, וירקות חתוכים ליד'},
+          {name:'קערת חלבון מהירה',tags:['lactose','nuts'],ings:'200 גרם יוגורט טבעי, 4 כפות שיבולת שועל, חצי כוס פירות יער וכפית חמאת בוטנים'}
+        ],
+        lunch:[
+          {name:'צלחת ברזל',tags:[],ings:'150 גרם חזה עוף או טופו, כוס אורז מלא מבושל, וסלט ירוק גדול עם כף שמן זית ממעל'},
+          {name:'מוקפץ קליסטניקס',tags:['soy','gluten'],ings:'אטריות אורז, 150 גרם רצועות עוף או טופו, שעועית ירוקה, פטריות ורוטב סויה'},
+          {name:'תבשיל בקר מתחזק',tags:[],ings:'150 גרם בקר רזה, תפוח אדמה אפוי, וכוס ברוקולי מאודה'}
+        ],
+        evening:[
+          {name:'סיום התאוששות',tags:['fish','egg'],ings:'קופסת טונה במים או 2 ביצים קשות, סלט ירקות עשיר, 2 כפות טחינה ופרוסת לחם לחם מלא'},
+          {name:'ארוחה חמה קלה',tags:['fish'],ings:'150 גרם פילה דג בתנור (כמו סלמון או אמנון), בטטה בינונית אפויה, וירקות מאודים'}
+        ],
+      },
+      rest:{
+        morning:[
+          {name:'דייסה בונה שריר',tags:['gluten','lactose'],ings:'5 כפות שיבולת שועל על בסיס כוס חלב, חצי בננה ומעט קינמון מעל'},
+          {name:'טוסט מתוק בריא',tags:['gluten','nuts'],ings:'2 פרוסות לחם מלא, שכבה דקה של חמאת בוטנים טבעית ופרוסות מתפוח אחד'}
+        ],
+        lunch:[
+          {name:'מג׳דרה וירקות',tags:[],ings:'כוס תבשיל עדשים ואורז (מג׳דרה), סלט קצוץ דק, ו-2 כפות טחינה גולמית'},
+          {name:'פסטה חלבון',tags:['gluten'],ings:'צלחת בינונית של פסטה (עדיף מקמח מלא), רוטב עגבניות, ו-100 גרם בשר טחון רזה'}
+        ],
+        evening:[
+          {name:'סלט חלומי/יווני',tags:['lactose'],ings:'סלט ירקות גדול מ-3 סוגי צבעים, 50 גרם גבינה בולגרית 5%, חופן זיתים ופרוסת לחם'},
+          {name:'שקשוקה קלה',tags:['egg'],ings:'שקשוקה מ-2 ביצים על בסיס עגבניות טריות, עם פרוסת לחם מלא לניגוב'}
+        ],
+      },
+      sick:{
+        morning:[
+          {name:'תה ועוגיות',tags:['gluten'],ings:'תה נענע חמים, כפית דבש, ו-2 עוגיות פריכות קלות לעיכול'},
+          {name:'טוסט עם ריבה',tags:['lactose','gluten'],ings:'פרוסת לחם לבן קלוי היטב, מעט חמאה או ריבה ללא סיבים'}
+        ],
+        lunch:[
+          {name:'מרק עוף של סבתא',tags:[],ings:'מרק צח עם חתיכת עוף קטנה, אטריות דקות וגזר מבושל רך'},
+          {name:'פירה מנחם',tags:['lactose'],ings:'פירה תפוחי אדמה במרקם חלק עם מעט חמאה ומלח'}
+        ],
+        evening:[
+          {name:'דייסת סולת',tags:['gluten','lactose'],ings:'כוס חלב מחומם עם סולת, ומעט קינמון לחימום הבטן'},
+          {name:'פודינג וניל',tags:['lactose'],ings:'פודינג קל לעיכול, ללא פירות או מרכיבים שמכבידים על העיכול'}
+        ],
+      }
+    };
+    
+    const ALLERGY_MAP = {'בוטנים':'peanut','אגוזים':'nuts','גלוטן':'gluten','לקטוז':'lactose','ביצים':'egg','דגים':'fish','סויה':'soy'};
+
+    const NOTIF_SLOTS = [
+      {id:'morning',hour:7,min:0,icon:'☀️',title:'בוקר טוב!',bodyFn:(isW,g,n)=>`${n}, היום ${isW?'יום אימון 💪':'יום מנוחה 🔋'}`},
+      {id:'preworkout',hour:17,min:30,icon:'💪',title:'הכנה לאימון',bodyFn:(isW)=>isW?'חימום ומים - האימון עוד שעה!':'יום מנוחה - מתיחות קלות'},
+      {id:'workout',hour:18,min:0,icon:'🔥',title:'זמן אימון!',bodyFn:(isW,g,n)=>isW?`${n}, Fitai מחכה לך!`:'יום מנוחה - הגוף מתחזק'},
+      {id:'sleep',hour:22,min:0,icon:'😴',title:'זמן שינה',bodyFn:(isW,g,n)=>`${n}, שינה = בנייה. לך לישון!`},
+    ];
+    
+    const calcTDEE = (w, h, a, gender, goal) => {
+      let W = parseFloat(w) || 70;
+      let H = parseFloat(h) || 175;
+      let A = parseFloat(a) || 25;
+      
+      if(H < 3) H = H * 100;
+      if(W > 250) W = 70; 
+      
+      const bmr = gender === 'נקבה' ? (10 * W) + (6.25 * H) - (5 * A) - 161 : (10 * W) + (6.25 * H) - (5 * A) + 5;
+      const baseTdee = Math.round(bmr * 1.375);
+      
+      let target = baseTdee;
+      
+      if (A < 16) {
+         target = baseTdee; 
+         if (target > 2400) target = 2400; 
+         if (target < 1500) target = 1500;
+      } else {
+         if (goal && goal.indexOf('ירידה') >= 0) {
+             target = baseTdee - 300;
+         } else {
+             target = baseTdee + 300;
+         }
+         if (target < 1200) target = 1200;
+         if (target > 3500) target = 3500;
+      }
+      return Math.round(target);
+    };
+    
+    const genWorkout = (type, mastered, duration) => {
+      let plan = [...BASE_WORKOUTS[type]];
+      let exCount=4, sets=3;
+      if (duration===45){exCount=5;sets=3;}
+      if (duration===60){exCount=5;sets=4;}
+      if (duration===90){exCount=6;sets=4;}
+      if (exCount>plan.length) plan.push({target:'core',name:'כפיפות בטן',reps:'20'},{target:'core',name:'הרמות רגליים',reps:'15'});
+      return plan.slice(0,exCount).map(e=>({...e,sets,reps:e.reps||'10'}));
+    };
+    
+    // ─────────────────────────────────────────
+    // ROOT APP
+    // ─────────────────────────────────────────
+    function App() {
+      const [screen, setScreen] = useLocalStorage('fitai_screen', 'splash');
+      const [answers, setAnswers] = useLocalStorage('fitai_answers', {});
+      const [qIdx, setQIdx] = useLocalStorage('fitai_qIdx', 0);
+      const [xp, setXp] = useLocalStorage('fitai_xp', 0);
+      const [workouts, setWorkouts] = useLocalStorage('fitai_workouts', 0);
+      const [mastered, setMastered] = useLocalStorage('fitai_mastered', []);
+      const [unlockedTier, setUnlockedTier] = useLocalStorage('fitai_tier', 1);
+      const [notifEnabled, setNotifEnabled] = useLocalStorage('fitai_notifs', {});
+      
+      const [localVal,setLocalVal] = useState('');
+      const [toast,setToast] = useState(null);
+      const [agreed,setAgreed] = useState(false);
+      const [scrolled,setScrolled]=useState(false);
+      const [toastQueue,setToastQueue] = useState([]);
+    
+      const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),2500); };
+      const addXP = (n) => { setXp(p=>p+n); showToast(`+${n} XP 🔥`); };
+    
+      useEffect(() => {
+        if (screen !== 'app') return;
+        const tick = () => {
+          const now = new Date();
+          const isW  = answers.days && answers.days.indexOf(DAYS_HE[now.getDay()])>=0;
+          const goal = answers.goal && answers.goal.indexOf('ירידה')>=0 ? 'חיטוב' : 'מסה';
+          const name = answers.name||'';
+          
+          NOTIF_SLOTS.forEach(slot => {
+            if (notifEnabled[slot.id] === false) return;
+            if (now.getHours()===slot.hour && now.getMinutes()===slot.min && now.getSeconds()<35) {
+              const body = slot.bodyFn(isW,goal,name);
+              if (Notification.permission === 'granted') {
+                new Notification(slot.title, { body, icon: '🔥' });
+              }
+              setToastQueue(q => [...q,{icon:slot.icon,title:slot.title,body,key:Date.now()+slot.id}]);
+            }
+          });
+        };
+        const id = setInterval(tick, 30000);
+        return () => clearInterval(id);
+      }, [screen, notifEnabled, answers]);
+
+      useEffect(() => {
+        if (!toastQueue.length) return;
+        const t = setTimeout(() => setToastQueue(q => q.slice(1)), 5000);
+        return () => clearTimeout(t);
+      }, [toastQueue]);
+
+      const filteredQ = useMemo(() =>
+        QUESTIONS.filter(q => !(q.id==='equip' && answers.location && answers.location.indexOf('חדר כושר')>=0)),
+        [answers.location]);
+      const activeQ = filteredQ[qIdx] || {};
+    
+      useEffect(() => { setLocalVal(answers[activeQ.id]||''); }, [qIdx]);
+    
+      const canProceed = () => {
+        if (!activeQ.id) return false;
+        if (activeQ.id === 'dislikes') return true; 
+        
+        if (activeQ.type==='text'||activeQ.type==='number') return localVal.toString().trim()!=='';
+        const a = answers[activeQ.id];
+        return Array.isArray(a) ? a.length>0 : !!a;
+      };
+      
+      const goNext = () => {
+        let na = {...answers};
+        if (activeQ.type==='text'||activeQ.type==='number') na[activeQ.id]=localVal;
+        setAnswers(na);
+        if (qIdx < filteredQ.length-1) setQIdx(qIdx+1);
+        else setScreen('app');
+      };
+      
+      const setChoice = (opt) => {
+        let na = {...answers, [activeQ.id]:opt};
+        if (activeQ.id==='location' && opt.indexOf('חדר כושר')>=0)
+          na.equip=['מוט מתח','מקבילים','טבעות','גומיות','פרלטס'];
+        setAnswers(na);
+        if (qIdx < filteredQ.length-1) setQIdx(qIdx+1);
+        else setScreen('app');
+      };
+      
+      const toggleMulti = (opt) => {
+        const cur = answers[activeQ.id]||[];
+        const excl = ['ללא','ללא פציעות','ללא ציוד'];
+        let next;
+        if (excl.indexOf(opt)>=0) next = [opt];
+        else {
+          const filtered = cur.filter(x => excl.indexOf(x)<0);
+          next = filtered.indexOf(opt)>=0 ? filtered.filter(x=>x!==opt) : [...filtered, opt];
+        }
+        setAnswers({...answers,[activeQ.id]:next});
+      };
+    
+      const resetApp = () => {
+        if(window.confirm("האם אתה בטוח שברצונך למחוק את כל הנתונים ולאפס את המשתמש? פעולה זו אינה ניתנת לביטול.")){
+          localStorage.clear();
+          setScreen('splash'); setAnswers({}); setQIdx(0); setXp(0);
+          setWorkouts(0); setMastered([]); setUnlockedTier(1); setNotifEnabled({});
+          setAgreed(false); setScrolled(false);
+        }
+      };
+
+      const toggleNotif = async (id, val) => {
+        if (val && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+          await Notification.requestPermission();
+        }
+        setNotifEnabled(prev => ({...prev, [id]:val}));
+      };
+
+      const toggleAllNotifs = async () => {
+        const allOn = NOTIF_SLOTS.every(s => notifEnabled[s.id] !== false);
+        if (!allOn && Notification.permission !== 'granted') {
+           await Notification.requestPermission();
+        }
+        const next = {};
+        NOTIF_SLOTS.forEach(s => { next[s.id] = !allOn; });
+        setNotifEnabled(next);
+      };
+
+      const sendTestNotif = (slot) => {
+        const isW  = answers.days && answers.days.indexOf(DAYS_HE[new Date().getDay()])>=0;
+        const goal = answers.goal && answers.goal.indexOf('ירידה')>=0 ? 'חיטוב' : 'מסה';
+        const body = slot.bodyFn(isW, goal, answers.name||'');
+        
+        if (Notification.permission === 'granted') {
+          new Notification(slot.title, { body, icon: '🔥' });
+        }
+        setToastQueue(q => [...q, {icon:slot.icon, title:slot.title, body, key:Date.now()}]);
+      };
+    
+      // ─────── SPLASH ───────
+      if (screen==='splash') return (
+        <div dir="rtl" className="min-h-screen bg-black flex flex-col items-center justify-center p-6 relative overflow-hidden" style={{fontFamily:'system-ui,sans-serif'}}>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-orange-600 rounded-full opacity-10 blur-3xl"/>
+          <div className="relative z-10 text-center w-full max-w-sm">
+            <div className="w-24 h-24 mx-auto mb-6 rounded-3xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shadow-2xl shadow-orange-500/40 text-5xl">🔥</div>
+            <h1 className="text-6xl font-black text-white mb-3 tracking-tight">Fitai</h1>
+            <p className="text-zinc-400 text-lg mb-12">מערכת קליסטניקס חכמה שמותאמת במאה אחוז אליך.</p>
+            <button onClick={()=>setScreen('health')} className="w-full bg-white text-black font-black py-5 rounded-2xl text-xl hover:scale-105 transition-transform shadow-2xl">
+              התחל / המשך
+            </button>
+          </div>
+        </div>
+      );
+    
+      // ─────── HEALTH ───────
+      if (screen==='health') return (
+        <div dir="rtl" className="min-h-screen bg-black flex flex-col p-6" style={{fontFamily:'system-ui,sans-serif'}}>
+          <div className="max-w-md mx-auto w-full flex-1 flex flex-col pt-4">
+            <div className="text-orange-500 font-bold uppercase tracking-widest text-xs mb-2">מסמך משפטי מחייב</div>
+            <h2 className="text-3xl font-black text-white mb-5">בטיחות לפני הכל.</h2>
+            <div onScroll={e=>{const el=e.target;if(el.scrollHeight-el.scrollTop-el.clientHeight<20)setScrolled(true);}}
+              className="flex-1 bg-zinc-900 rounded-3xl p-6 border border-zinc-800 mb-5 overflow-y-auto max-h-96 space-y-4 text-zinc-300 text-sm leading-relaxed">
+              <p><b className="text-white block mb-1">1. פטור נזיקין:</b>האימונים באחריותך הבלעדית. לא נישא באחריות לכל נזק.</p>
+              <p><b className="text-white block mb-1">2. אישור רפואי:</b>חובה להתייעץ עם רופא לפני תחילת תוכנית אימונים.</p>
+              <p><b className="text-white block mb-1">3. כאב = עצור:</b>כאב חד, סחרחורת, בחילה? עצור מיידית.</p>
+              <p><b className="text-white block mb-1">4. תזונה:</b>התפריטים הם המלצה כללית בלבד, לא ייעוץ רפואי.</p>
+              <p><b className="text-white block mb-1">5. גיל מינימלי:</b>מגיל 14. מתחת ל-18 נדרש אישור הורה.</p>
+              <p><b className="text-white block mb-1">6. התראות:</b>האפליקציה תוכל לשלוח התראות דחיפה (Push) לדפדפן כדי להזכיר לך להתאמן.</p>
+            </div>
+            {!scrolled && <div className="text-center text-xs text-orange-500 font-bold mb-3 animate-pulse">↓ גלול עד הסוף להמשך</div>}
+            <button type="button" onClick={()=>scrolled&&setAgreed(!agreed)} disabled={!scrolled}
+              className={`flex justify-between items-center p-5 rounded-2xl border-2 mb-4 transition-all w-full text-right ${!scrolled?'opacity-40 cursor-not-allowed border-zinc-800':agreed?'border-orange-500 bg-orange-500/10':'border-zinc-700 hover:border-zinc-600 cursor-pointer'}`}>
+              <div className={`w-6 h-6 rounded flex items-center justify-center border-2 flex-shrink-0 transition-all ${agreed?'bg-orange-500 border-orange-500':'border-zinc-500'}`}>
+                {agreed && <Check className="w-4 h-4 text-white" strokeWidth={3}/>}
+              </div>
+              <span className="font-bold text-sm text-white">קראתי, הבנתי ואני מאשר/ת הכל</span>
+            </button>
+            <button disabled={!agreed} onClick={()=>setScreen('q')}
+              className={`w-full py-4 rounded-2xl font-black text-xl transition-all ${agreed?'bg-white text-black active:scale-95 shadow-xl':'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'}`}>
+              המשך לשאלון
+            </button>
+          </div>
+        </div>
+      );
+    
+      // ─────── QUESTIONNAIRE ───────
+      if (screen==='q') return (
+        <div dir="rtl" className="min-h-screen bg-black flex flex-col p-6" style={{fontFamily:'system-ui,sans-serif'}}>
+          <div className="max-w-md mx-auto w-full flex-1 flex flex-col">
+            <div className="flex justify-between items-center mb-4 pt-4">
+              <button onClick={()=>qIdx===0?setScreen('health'):setQIdx(qIdx-1)} className="text-zinc-500 text-2xl p-2 hover:text-white">›</button>
+              <span className="text-xs text-zinc-500 font-bold uppercase">{qIdx+1} / {filteredQ.length}</span>
+            </div>
+            <div className="w-full h-1.5 bg-zinc-900 rounded-full mb-8 overflow-hidden">
+              <div className="h-full bg-gradient-to-l from-orange-500 to-red-600 transition-all duration-300" style={{width:`${((qIdx+1)/filteredQ.length)*100}%`}}/>
+            </div>
+            <h2 className="text-3xl font-black text-white mb-8 leading-tight">{activeQ.q}</h2>
+            <div className="flex-1 overflow-y-auto pb-4 space-y-3">
+              {activeQ.type==='choice' && activeQ.options && activeQ.options.map(opt=>(
+                <button key={opt} onClick={()=>setChoice(opt)}
+                  className={`w-full p-5 rounded-2xl border-2 text-right font-bold text-lg transition-all ${answers[activeQ.id]===opt?'border-orange-500 bg-orange-500/10 text-white':'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                  {opt}
+                </button>
+              ))}
+              {(activeQ.type==='multi'||activeQ.type==='days') && activeQ.options && activeQ.options.map(opt=>{
+                const sel=(answers[activeQ.id]||[]).indexOf(opt)>=0;
+                return(
+                  <button key={opt} onClick={()=>toggleMulti(opt)}
+                    className={`w-full flex justify-between items-center p-5 rounded-2xl border-2 font-bold text-lg transition-all ${sel?'bg-orange-500/10 border-orange-500 text-white':'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                    {sel ? <Check className="w-5 h-5 text-orange-500"/> : <span/>}
+                    <span>{opt}</span>
+                  </button>
+                );
+              })}
+              {(activeQ.type==='text'||activeQ.type==='number') && (
+                <input type={activeQ.type} placeholder={activeQ.placeholder} min={activeQ.min} max={activeQ.max}
+                  value={localVal} onChange={e=>setLocalVal(e.target.value)}
+                  className="w-full bg-zinc-900 p-5 rounded-2xl border border-zinc-800 text-xl text-white font-bold text-right focus:border-orange-500 outline-none transition-colors" autoFocus/>
+              )}
+            </div>
+            {(activeQ.type==='multi'||activeQ.type==='days'||activeQ.type==='text'||activeQ.type==='number') && (
+              <button disabled={!canProceed()} onClick={goNext}
+                className={`w-full py-4 rounded-2xl font-black mt-4 text-xl transition-all ${canProceed()?'bg-white text-black active:scale-95 shadow-lg':'bg-zinc-900 text-zinc-600 border border-zinc-800 cursor-not-allowed'}`}>
+                {activeQ.id === 'dislikes' && localVal.trim() === '' ? 'דלג' : 'המשך'}
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    
+      // ─────── MAIN APP ───────
+      return (
+        <div dir="rtl" className="min-h-screen bg-black" style={{fontFamily:'system-ui,sans-serif'}}>
+          {toast && (
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-white text-black px-6 py-3 rounded-full shadow-2xl font-black text-sm transition-all">
+              {toast}
+            </div>
+          )}
+          {toastQueue.slice(0,1).map(n => (
+            <div key={n.key} className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-orange-500/40 rounded-2xl px-4 py-3 shadow-2xl max-w-xs w-full text-right z-50">
+              <div className="flex items-start gap-3">
+                <button onClick={()=>setToastQueue(q=>q.slice(1))} className="text-zinc-500 text-xs mt-0.5 hover:text-white">✕</button>
+                <div className="flex-1">
+                  <div className="font-black text-white text-sm">{n.icon} {n.title}</div>
+                  <div className="text-xs text-zinc-400 mt-0.5">{n.body}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+          <MainAppTabs
+            answers={answers} xp={xp} mastered={mastered} workouts={workouts} unlockedTier={unlockedTier}
+            notifEnabled={notifEnabled} onToggleNotif={toggleNotif} onToggleAllNotifs={toggleAllNotifs} onTestNotif={sendTestNotif}
+            onWorkoutDone={()=>{ setWorkouts(w=>w+1); addXP(100); }}
+            onToggleSkill={(id)=>{
+              setMastered(m => {
+                const has = m.indexOf(id)>=0;
+                const next = has ? m.filter(x=>x!==id) : [...m,id];
+                showToast(has ? `הוסר מהאימונים` : `🔥 יוזרק לאימון הבא!`);
+                return next;
+              });
+            }}
+            onPassTest={(tierPassed) => {
+              setUnlockedTier(tierPassed + 1);
+              showToast(`🏆 טיר ${tierPassed + 1} נפתח!`);
+              addXP(500);
+            }}
+            showToast={showToast} resetApp={resetApp}
+          />
+        </div>
+      );
+    }
+    
+    // ─────────────────────────────────────────
+    // MAIN APP TABS
+    // ─────────────────────────────────────────
+    function MainAppTabs({ answers, xp, mastered, workouts, unlockedTier, notifEnabled, onToggleNotif, onToggleAllNotifs, onTestNotif, onWorkoutDone, onToggleSkill, onPassTest, showToast, resetApp }) {
+      const [tab, setTab] = useState('home');
+      const [dur, setDur] = useState(null);
+    
+      return (
+        <div className="max-w-md mx-auto relative">
+          <div className="pb-24 min-h-screen">
+            {tab==='home'&&!dur&&<Dashboard answers={answers} xp={xp} workouts={workouts} unlockedTier={unlockedTier} onStart={setDur} resetApp={resetApp} showToast={showToast}/>}
+            {tab==='home'&&dur&&<WorkoutPlayer answers={answers} mastered={mastered} duration={dur}
+              onFinish={()=>{onWorkoutDone();setDur(null);}} onExit={()=>setDur(null)}/>}
+            {tab==='skills'&&!dur&&<SkillTree mastered={mastered} unlockedTier={unlockedTier} toggle={onToggleSkill} onPassTest={onPassTest} showToast={showToast}/>}
+            {tab==='nutrition'&&!dur&&<NutritionView answers={answers}/>}
+            {tab==='notifications'&&!dur&&<NotificationsView answers={answers} notifEnabled={notifEnabled}
+              onToggle={onToggleNotif} onToggleAll={onToggleAllNotifs} onTest={onTestNotif}/>}
+          </div>
+          {!dur && (
+            <nav className="fixed bottom-0 w-full max-w-md bg-zinc-950/90 backdrop-blur-lg border-t border-zinc-900 flex justify-around p-3 pb-4 rounded-t-3xl z-40">
+              {[['home','🏠','בית'],['skills','🌳','טירים'],['nutrition','🥩','תזונה'],['notifications','🔔','התראות']].map(([t,ic,lb])=>(
+                <button key={t} onClick={()=>setTab(t)} className={`flex flex-col items-center transition-all duration-300 w-1/4 ${tab===t?'text-white scale-110 -translate-y-1':'text-zinc-600 hover:text-zinc-400'}`}>
+                  <span className="text-2xl mb-1">{ic}</span>
+                  <span className="text-xs font-bold">{lb}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
+      );
+    }
+    
+    // ─────────────────────────────────────────
+    // DASHBOARD
+    // ─────────────────────────────────────────
+    function Dashboard({ answers, xp, workouts, unlockedTier, onStart, resetApp, showToast }) {
+      const today = DAYS_HE[new Date().getDay()];
+      const isWorkoutDay = answers.days && answers.days.indexOf(today)>=0;
+      const [showModal, setShowModal] = useState(false);
+    
+      const level = Math.floor(xp/100)+1;
+      const xpPct = xp%100;
+    
+      return (
+        <div className="p-6 pt-8">
+          <div className="flex justify-between items-center mb-8">
+            <button onClick={resetApp} className="text-xs text-zinc-500 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-full hover:text-red-400 transition-colors font-bold">איפוס נתונים</button>
+            <div className="text-right">
+              <div className="text-xs text-orange-500 font-bold uppercase tracking-widest mb-1">Fitai App</div>
+              <h1 className="text-3xl font-black text-white">שלום, {answers.name}</h1>
+            </div>
+          </div>
+    
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 text-center relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500 rounded-full blur-3xl opacity-20"/>
+              <div className="text-5xl font-black text-white">{unlockedTier}</div>
+              <div className="text-xs text-orange-500 font-bold uppercase tracking-widest mt-1">טיר נוכחי</div>
+            </div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 text-center relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-16 h-16 bg-blue-500 rounded-full blur-3xl opacity-20"/>
+              <div className="text-5xl font-black text-white">{workouts}</div>
+              <div className="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">אימונים</div>
+            </div>
+          </div>
+    
+          <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800 mb-6">
+            <div className="flex justify-between mb-2">
+              <span className="text-xs text-zinc-500 font-bold">רמה {level}</span>
+              <span className="text-xs text-orange-500 font-bold">{xpPct}/100 XP</span>
+            </div>
+            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-orange-500 to-red-600 transition-all" style={{width:`${xpPct}%`}}/>
+            </div>
+          </div>
+    
+          {isWorkoutDay ? (
+            <div className="bg-gradient-to-bl from-orange-600 to-red-700 p-7 rounded-3xl shadow-2xl shadow-orange-500/30 text-white relative overflow-hidden">
+              <div className="absolute -top-4 -left-4 text-8xl font-black italic opacity-20 -rotate-12">⚡</div>
+              <div className="relative z-10">
+                <div className="text-xs font-black text-orange-200 uppercase tracking-widest mb-2">מוכן לזוז?</div>
+                <h3 className="text-4xl font-black mb-5">אימון יומי מותאם</h3>
+                <button onClick={()=>setShowModal(true)} className="w-full bg-white text-black font-black py-4 rounded-2xl text-xl active:scale-95 transition-transform shadow-xl">
+                  התחל אימון עכשיו
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gradient-to-bl from-blue-600 to-indigo-800 p-7 rounded-3xl shadow-2xl shadow-blue-500/30 text-white relative overflow-hidden">
+              <div className="absolute -top-4 -left-4 text-8xl font-black italic opacity-20 -rotate-12">🔋</div>
+              <div className="relative z-10 text-right">
+                <div className="text-xs font-black text-blue-200 uppercase tracking-widest mb-2">יום מנוחה מוגדר מראש</div>
+                <h3 className="text-4xl font-black mb-3">זמן לבנות שריר</h3>
+                <p className="text-blue-100 text-sm mb-6 leading-relaxed">
+                  בימי המנוחה השריר נבנה, משתקם ומתחזק. תן לגוף את הזמן שלו להתאושש כדי להגיע חזק יותר לאימון הבא שלך.
+                </p>
+                <button onClick={()=>showToast('יום מנוחה! קח את הזמן לנוח ולהתאושש 🧘‍♂️')} className="w-full bg-white/20 backdrop-blur-md text-white font-black py-4 rounded-2xl text-xl border border-white/30 shadow-xl active:scale-95 transition-transform">
+                  מצב התאוששות פעיל
+                </button>
+              </div>
+            </div>
+          )}
+    
+          {showModal && (
+            <div className="fixed inset-0 bg-black/95 backdrop-blur-xl flex justify-center items-center z-50 p-6">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-7 w-full max-w-sm text-right">
+                <h3 className="text-3xl font-black text-white mb-2">כמה זמן יש לך?</h3>
+                <div className="space-y-3 mt-6">
+                  {[{d:30,l:'30 דקות',s:'3 סטים'},{d:45,l:'45 דקות',s:'3 סטים · 5 תרגילים',hi:true},{d:60,l:'60 דקות',s:'4 סטים'}].map(({d,l,s,hi})=>(
+                    <button key={d} onClick={()=>{setShowModal(false);onStart(d);}}
+                      className={`w-full flex justify-between items-center p-4 rounded-2xl font-bold text-lg transition-all ${hi?'bg-orange-500/10 border border-orange-500 text-white':'bg-zinc-950 border border-zinc-800 text-white hover:border-orange-500/50'}`}>
+                      <span className={`text-sm ${hi?'text-orange-400':'text-zinc-500'}`}>{s}</span>
+                      <span>{l}</span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={()=>setShowModal(false)} className="w-full mt-5 text-zinc-500 font-bold text-sm uppercase tracking-widest hover:text-white transition-colors">ביטול</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    // ─────────────────────────────────────────
+    // WORKOUT PLAYER
+    // ─────────────────────────────────────────
+    function WorkoutPlayer({ answers, mastered, duration, onFinish, onExit }) {
+      const plan = useMemo(()=>genWorkout('fbw',mastered,duration),[mastered,duration]);
+      const [exIdx, setExIdx]   = useState(0);
+      const [setIdx, setSetIdx] = useState(0);
+      const [resting, setResting] = useState(false);
+      const [timer, setTimer] = useState(0);
+      const [done, setDone] = useState(false);
+      
+      // הגדרת זמני מנוחה דינמיים לפי מטרה: חיטוב (60 שניות) מול מסה (90 שניות)
+      const restTime = answers.goal && answers.goal.indexOf('ירידה') >= 0 ? 60 : 90;
+    
+      useEffect(() => {
+        if (!resting || timer<=0) { if (resting && timer===0) setResting(false); return; }
+        const t = setTimeout(()=>setTimer(s=>s-1), 1000);
+        return ()=>clearTimeout(t);
+      }, [resting, timer]);
+    
+      const finishSet = () => {
+        const ex = plan[exIdx];
+        if (setIdx+1 < ex.sets) { setSetIdx(s=>s+1); setTimer(restTime); setResting(true); }
+        else if (exIdx+1 < plan.length) { setExIdx(i=>i+1); setSetIdx(0); setTimer(restTime); setResting(true); }
+        else setDone(true);
+      };
+    
+      if (done) return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 mb-6 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-5xl">🏆</div>
+          <h2 className="text-4xl font-black text-white mb-2">כל הכבוד!</h2>
+          <button onClick={onFinish} className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-black py-4 rounded-2xl text-xl mt-8">סיום אימון</button>
+        </div>
+      );
+    
+      const ex = plan[exIdx];
+      if (resting) return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-black text-center">
+          <div className="text-9xl font-black text-white">{timer}</div>
+          <p className="text-zinc-500 mt-4">מנוחה (מותאם למטרה שלך)</p>
+        </div>
+      );
+    
+      return (
+        <div className="min-h-screen p-6 flex flex-col text-center justify-between bg-black">
+          <div><h2 className="text-xl text-zinc-500">תרגיל {exIdx+1}/{plan.length}</h2></div>
+          <div>
+            <div className="text-xs font-bold text-zinc-500 mb-4 bg-zinc-900 px-4 py-2 rounded-full inline-block">סט {setIdx+1} מתוך {ex.sets}</div>
+            <h2 className="text-5xl font-black text-white mb-8">{ex.name}</h2>
+            <div className="text-7xl font-black text-orange-500">{ex.reps}</div>
+          </div>
+          <div>
+            <button onClick={finishSet} className="w-full bg-white text-black py-6 rounded-3xl font-black text-2xl mb-4">סיימתי ✓</button>
+            <button onClick={onExit} className="text-zinc-600 font-bold text-sm">יציאה</button>
+          </div>
+        </div>
+      );
+    }
+    
+    // ─────────────────────────────────────────
+    // SKILL TREE (TIERS)
+    // ─────────────────────────────────────────
+    function SkillTree({ mastered, unlockedTier, toggle, onPassTest, showToast }) {
+      const [selSkill, setSelSkill] = useState(null);
+      const [testModalTier, setTestModalTier] = useState(null);
+
+      return (
+        <div className="p-6 pt-8 bg-black min-h-screen pb-32">
+          <h1 className="text-4xl font-black text-white mb-2">Fitai Tiers</h1>
+          <p className="text-zinc-400 text-sm mb-6">עבור מבחנים כדי לפתוח טירים חדשים ולהתקדם בעץ המיומנויות (סה"כ 90 תרגילים).</p>
+          
+          <div className="space-y-8">
+            {TIERS.map((tier) => {
+              const isUnlocked = tier.level <= unlockedTier;
+              const isCurrentTest = tier.level === unlockedTier && tier.level < 10;
+              const masteredInTier = tier.skills.filter(sk => mastered.indexOf(sk.id) >= 0).length;
+              const neededForTest = 5 - masteredInTier;
+              const canTakeTest = neededForTest <= 0;
+              
+              return (
+                <div key={tier.level} className={`border rounded-3xl p-5 transition-all ${isUnlocked ? 'border-orange-500/30 bg-zinc-900/50' : 'border-zinc-800 bg-zinc-950 opacity-60'}`}>
+                  
+                  <div className="flex justify-between items-center mb-4 pb-4 border-b border-zinc-800/50">
+                    <div className="text-right flex-1">
+                      <div className="flex items-center justify-end gap-2 mb-1">
+                         <h3 className="text-2xl font-black text-white">{tier.name}</h3>
+                         {!isUnlocked && <Lock className="w-5 h-5 text-zinc-500" />}
+                      </div>
+                      <span className="text-xs text-zinc-500 block">9 תרגילים ברמה זו</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 mb-5 direction-rtl">
+                    {tier.skills.map(sk => {
+                      const mast = mastered.indexOf(sk.id) >= 0;
+                      return (
+                        <button key={sk.id} 
+                          onClick={() => {
+                            if (!isUnlocked) { showToast('🔒 הטיר הזה עדיין נעול!'); return; }
+                            setSelSkill(sk);
+                          }}
+                          className={`aspect-square rounded-2xl flex flex-col items-center justify-center p-2 text-center border-2 transition-all
+                            ${mast ? 'bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/20' : 
+                              isUnlocked ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-orange-500/50' : 
+                              'bg-zinc-900 border-zinc-800 text-zinc-600'}
+                          `}>
+                          <span className="text-xs font-bold leading-tight">{sk.name}</span>
+                          {mast && <span className="mt-1 text-xs">✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {isCurrentTest && (
+                     <div className="mt-2">
+                       {canTakeTest ? (
+                         <button onClick={() => setTestModalTier(tier)}
+                           className="w-full bg-gradient-to-r from-orange-600 to-red-600 text-white font-black py-3 rounded-xl shadow-lg active:scale-95 transition-transform flex justify-center items-center gap-2">
+                           <span>🔥 פתוח: לחץ למבחן מעבר טיר</span>
+                         </button>
+                       ) : (
+                         <div className="w-full bg-zinc-800/50 border border-zinc-700/50 text-zinc-500 font-bold py-3 rounded-xl text-center text-sm flex flex-col gap-1 items-center justify-center">
+                           <span>🔒 מבחן מעבר נעול</span>
+                           <span className="text-xs font-normal">סמן עוד {neededForTest} תרגילים בטיר כדי לגשת.</span>
+                         </div>
+                       )}
+                     </div>
+                  )}
+                  {tier.level < unlockedTier && (
+                     <div className="w-full bg-zinc-800 text-green-400 font-bold py-2 rounded-xl text-center text-sm">
+                       ✓ מבחן הטיר הושלם
+                     </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {selSkill && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={()=>setSelSkill(null)}>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 max-w-md w-full" onClick={e=>e.stopPropagation()}>
+                <div className="flex justify-between items-start mb-4">
+                  <button onClick={()=>setSelSkill(null)} className="text-zinc-500 hover:text-white text-xl">✕</button>
+                  <div className="text-right">
+                    <div className="text-xs text-orange-500 font-bold uppercase mb-1">איך לבצע ואילו שרירים עובדים</div>
+                    <h3 className="text-2xl font-black text-white">{selSkill.name}</h3>
+                  </div>
+                </div>
+                
+                <MuscleMan target={selSkill.target} />
+                
+                <div className="bg-black rounded-xl p-4 border border-zinc-800 mb-6 text-right">
+                  <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">{selSkill.desc}</p>
+                </div>
+                
+                <button onClick={()=>{toggle(selSkill.id);setSelSkill(null);}}
+                  className={`w-full font-black py-4 rounded-2xl transition-all shadow-xl active:scale-95 ${mastered.indexOf(selSkill.id)>=0 ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-orange-600 text-white hover:bg-orange-500'}`}>
+                  {mastered.indexOf(selSkill.id)>=0 ? 'הסר מאימונים עתידיים' : '✓ סיים תרגיל (הוסף למאגר)'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {testModalTier && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4" onClick={()=>setTestModalTier(null)}>
+               <div className="bg-zinc-900 border-2 border-orange-500/50 rounded-3xl p-7 max-w-md w-full text-right" onClick={e=>e.stopPropagation()}>
+                  <div className="text-center mb-6">
+                    <div className="text-6xl mb-4">⚠️</div>
+                    <h2 className="text-3xl font-black text-white">מבחן מעבר טיר</h2>
+                    <p className="text-zinc-400 text-sm mt-2">כדי לפתוח את הטיר הבא, עליך להשלים את האתגר הבא ברצף או באימון אחד:</p>
+                  </div>
+                  
+                  <div className="bg-black rounded-2xl p-5 border border-zinc-800 mb-8">
+                     <p className="text-orange-400 font-bold text-lg text-center">{testModalTier.testDesc}</p>
+                  </div>
+
+                  <button onClick={() => {
+                      onPassTest(testModalTier.level);
+                      setTestModalTier(null);
+                    }}
+                    className="w-full bg-orange-600 hover:bg-orange-500 text-white font-black py-4 rounded-2xl text-lg mb-3 shadow-lg shadow-orange-500/20 active:scale-95 transition-all">
+                    השלמתי את המבחן בהצלחה!
+                  </button>
+                  <button onClick={()=>setTestModalTier(null)} className="w-full text-zinc-500 font-bold py-3">
+                    עדיין לא מוכן
+                  </button>
+               </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─────────────────────────────────────────
+    // NUTRITION
+    // ─────────────────────────────────────────
+    function NutritionView({ answers }) {
+      const [mood, setMood] = useState('training');
+      const [refresh, setRefresh] = useState(0);
+      const tdee = useMemo(()=>calcTDEE(answers.weight,answers.height,answers.age,answers.gender,answers.goal),[answers]);
+      
+      const algSet = new Set((answers.allergies||[]).map(a=>ALLERGY_MAP[a]).filter(Boolean));
+      const noAlg = !(answers.allergies||[]).length || (answers.allergies||[]).indexOf('ללא')>=0;
+      
+      // שליפת המאכלים השנואים מהשאלון
+      const dislikesStr = answers.dislikes || '';
+      const dislikesArr = dislikesStr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      
+      const getMeal = (t) => {
+        // סינון לפי אלרגיות
+        let opts = (MEAL_PLANS[mood][t]||[]).filter(m => noAlg || !m.tags.some(x=>algSet.has(x)));
+        
+        // סינון לפי מאכלים שנואים
+        if (dislikesArr.length > 0 && opts.length > 0) {
+          const tempOpts = opts.filter(m => {
+            const ingsLower = m.ings.toLowerCase();
+            const nameLower = m.name.toLowerCase();
+            const hasDislike = dislikesArr.some(d => ingsLower.includes(d) || nameLower.includes(d));
+            return !hasDislike;
+          });
+          if (tempOpts.length > 0) {
+            opts = tempOpts;
+          }
+        }
+
+        if (!opts.length) return {name:'אין ארוחה מתאימה',ings:'נסה לשנות את הגדרות האלרגיה או המאכלים שאתה לא אוהב בשאלון.'};
+        return opts[(refresh+t.length) % opts.length];
+      };
+
+      const age = answers.age || 25;
+      const isUnderage = age < 16;
+      
+      return (
+        <div className="p-6 pt-8">
+          <h1 className="text-4xl font-black text-white mb-1">תזונה חכמה</h1>
+          <p className="text-zinc-400 text-sm mb-6">מחושב ל-<span className="text-orange-500 font-bold">{tdee}</span> קל׳ ביום</p>
+          
+          {isUnderage && (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 mb-6">
+              <div className="text-orange-400 font-bold text-sm mb-1">⚠️ שים לב:</div>
+              <div className="text-zinc-300 text-xs leading-relaxed">
+                מכיוון שאתה בן {age}, הגוף שלך עדיין בשלבי גדילה. מנוע Fitai שקלל את התוצאה כדי למנוע גרעון קיצוני. המטרה בגיל הזה היא התחזקות ותזונה מאוזנת.
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mb-6 overflow-x-auto pb-1">
+            {[['training','⚡ מתאמן','bg-orange-600'],['rest','🧘 מנוחה','bg-green-700'],['sick','🤒 חולה','bg-blue-600']].map(([k,lb,cl])=>(
+              <button key={k} onClick={()=>setMood(k)} className={`px-5 py-2.5 rounded-full whitespace-nowrap font-bold text-sm transition-all ${mood===k?`${cl} text-white scale-105 shadow-lg`:'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'}`}>{lb}</button>
+            ))}
+          </div>
+          
+          <button onClick={()=>setRefresh(r=>r+1)} className="w-full bg-zinc-900 border border-zinc-700 p-4 rounded-2xl mb-6 font-black text-orange-500 active:scale-95 transition-transform flex justify-center items-center gap-3">
+            🔄 ערבב תפריט
+          </button>
+          
+          {['morning','lunch','evening'].map(t => {
+            const meal = getMeal(t);
+            const lb = t==='morning' ? 'ארוחת בוקר' : t==='lunch' ? 'ארוחת צהריים' : 'ארוחת ערב';
+            const kcal = Math.round((t==='lunch'?0.4:0.3)*tdee);
+            return (
+              <div key={t} className="bg-zinc-900 p-6 rounded-3xl border border-zinc-800 mb-5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-1.5 h-full bg-gradient-to-b from-orange-500 to-red-600"/>
+                <div className="text-xs font-black text-zinc-500 uppercase tracking-widest mb-2">{lb}</div>
+                <h3 className="text-2xl font-black text-white mb-4">{meal.name}</h3>
+                <div className="bg-black/50 p-4 rounded-xl border border-zinc-800 text-sm text-zinc-300">
+                  <div className="flex justify-between items-center mb-3 pb-3 border-b border-zinc-800">
+                    <span className="text-orange-500 font-bold text-xs">מבנה הארוחה:</span>
+                    <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400 font-bold">~{kcal} קק״ל</span>
+                  </div>
+                  <div className="leading-relaxed">{meal.ings}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    
+    // ─────────────────────────────────────────
+    // NOTIFICATIONS
+    // ─────────────────────────────────────────
+    function NotificationsView({ answers, notifEnabled, onToggle, onToggleAll, onTest }) {
+      const isWorkoutToday = answers.days && answers.days.indexOf(DAYS_HE[new Date().getDay()])>=0;
+      const goal = answers.goal && answers.goal.indexOf('ירידה')>=0 ? 'חיטוב' : 'מסה';
+      const name = answers.name || '';
+      const allOn = NOTIF_SLOTS.every(s => notifEnabled[s.id] !== false);
+    
+      return (
+        <div className="p-6 pt-8">
+          <h1 className="text-4xl font-black text-white mb-1">התראות דחיפה (Push)</h1>
+          <p className="text-zinc-400 text-sm mb-5">תזכורות נשלחות כהתראות דחיפה לדפדפן / למכשיר גם כשהאפליקציה פתוחה ברקע.</p>
+    
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mb-5 flex justify-between items-center">
+            <button onClick={onToggleAll}
+              className={`w-12 h-6 rounded-full relative transition-all duration-300 ${allOn?'bg-orange-500':'bg-zinc-700'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300 ${allOn?'right-0.5':'left-0.5'}`}/>
+            </button>
+            <div className="text-right">
+              <div className="font-black text-white text-sm">הפעל / כבה הכל</div>
+              <div className="text-xs text-zinc-500">{NOTIF_SLOTS.filter(s=>notifEnabled[s.id]!==false).length} מתוך {NOTIF_SLOTS.length} פעילות</div>
+            </div>
+          </div>
+    
+          <div className="space-y-3">
+            {NOTIF_SLOTS.map(slot => {
+              const isOn = notifEnabled[slot.id] !== false;
+              const body = slot.bodyFn(isWorkoutToday, goal, name);
+              return (
+                <div key={slot.id} className={`bg-zinc-900 rounded-2xl border transition-all ${isOn?'border-zinc-700':'border-zinc-900'}`}>
+                  <div className="flex items-center gap-3 p-4">
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl flex-shrink-0 transition-all ${isOn?'bg-gradient-to-br from-orange-500 to-red-600 shadow-lg shadow-orange-500/30':'bg-zinc-800'}`}>
+                      {slot.icon}
+                    </div>
+                    <div className="flex-1 min-w-0 text-right">
+                      <div className="flex justify-between items-center mb-0.5">
+                        <span className={`text-xs font-bold tabular-nums ${isOn?'text-orange-400':'text-zinc-600'}`}>
+                          {String(slot.hour).padStart(2,'0')}:{String(slot.min).padStart(2,'0')}
+                        </span>
+                        <span className="font-bold text-white text-sm">{slot.title}</span>
+                      </div>
+                      <p className="text-xs text-zinc-500 leading-snug truncate">{body}</p>
+                    </div>
+                    <button onClick={()=>onToggle(slot.id, !isOn)}
+                      className={`w-11 h-6 rounded-full relative transition-all duration-300 flex-shrink-0 ${isOn?'bg-orange-500':'bg-zinc-700'}`}>
+                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300 ${isOn?'right-0.5':'left-0.5'}`}/>
+                    </button>
+                  </div>
+                  {isOn && (
+                    <div className="px-4 pb-3">
+                      <button onClick={()=>onTest(slot)}
+                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold py-2 rounded-xl transition-colors active:scale-95">
+                        📬 שלח התראת ניסיון כעת
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+    
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
